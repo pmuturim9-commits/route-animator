@@ -23,20 +23,20 @@ DEFAULT_ROUTE_MAPPING = {
 }
 
 def parse_custom_codes_file(uploaded_file):
-    """Strict column detection to ensure Route names map to T-Codes correctly."""
+    """Safely extracts Route and Code mapping without column overlap errors."""
     df_raw = pd.read_excel(uploaded_file)
     
     route_col = None
     code_col = None
     
-    # 1. Identify Code column first (must contain 'code', 't-code', 'tcode', or 'id')
+    # 1. Identify Code column first
     for col in df_raw.columns:
         col_str = str(col).lower().strip()
         if any(keyword in col_str for keyword in ["code", "t-code", "tcode", "id"]):
             code_col = col
             break
 
-    # 2. Identify Route column (excluding the code column)
+    # 2. Identify Route column (excluding code column)
     for col in df_raw.columns:
         if col == code_col:
             continue
@@ -45,7 +45,7 @@ def parse_custom_codes_file(uploaded_file):
             route_col = col
             break
 
-    # Fallbacks if headers aren't standard
+    # Fallbacks for non-standard header names
     if route_col is None:
         route_col = df_raw.columns[0]
     if code_col is None:
@@ -56,37 +56,37 @@ def parse_custom_codes_file(uploaded_file):
         r_val = str(row[route_col]).strip().upper()
         c_val = str(row[code_col]).strip() if pd.notna(row[code_col]) else "T00"
         
-        # Ensure header strings are ignored
         if r_val not in ["NAN", "ROUTE", "ROUTE NAME", "CODE", "T-CODE", "TCODE", "", "NONE"]:
             custom_mapping[r_val] = c_val
 
     return custom_mapping
 
 def style_excel_workbook(writer, df_master, existing_sheets):
-    """Applies professional styling, auto-adjusts column widths, and formats numbers."""
+    """Applies clean formatting and cell styling to output workbook."""
     header_fill = PatternFill(start_color="0D9488", end_color="0D9488", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     total_fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
     bold_font = Font(name="Calibri", size=11, bold=True)
     
-    ws_master = writer.sheets["Monthly Summary"]
-    for col_idx in range(1, len(df_master.columns) + 1):
-        cell = ws_master.cell(row=1, column=col_idx)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        
-    for row_idx in range(2, len(df_master) + 2):
-        is_total_row = (row_idx == len(df_master) + 1)
+    if "Monthly Summary" in writer.sheets:
+        ws_master = writer.sheets["Monthly Summary"]
         for col_idx in range(1, len(df_master.columns) + 1):
-            cell = ws_master.cell(row=row_idx, column=col_idx)
-            if is_total_row:
-                cell.fill = total_fill
-                cell.font = bold_font
-            if col_idx in [2, 3, 4, 5, 6]:
-                cell.number_format = '#,##0.0'
-            elif col_idx == 7:
-                cell.number_format = 'KSh #,##0.00'
+            cell = ws_master.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+        for row_idx in range(2, len(df_master) + 2):
+            is_total_row = (row_idx == len(df_master) + 1)
+            for col_idx in range(1, len(df_master.columns) + 1):
+                cell = ws_master.cell(row=row_idx, column=col_idx)
+                if is_total_row:
+                    cell.fill = total_fill
+                    cell.font = bold_font
+                if col_idx in [2, 3, 4, 5, 6]:
+                    cell.number_format = '#,##0.0'
+                elif col_idx == 7:
+                    cell.number_format = 'KSh #,##0.00'
 
     for sheetname in writer.sheets:
         ws_curr = writer.sheets[sheetname]
@@ -104,7 +104,7 @@ def style_excel_workbook(writer, df_master, existing_sheets):
             col_letter = openpyxl.utils.get_column_letter(col[0].column)
             ws_curr.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
-# --- APP LAYOUT ---
+# --- USER INTERFACE ---
 col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
@@ -118,7 +118,7 @@ with col3:
     daily_file = st.file_uploader(f"📄 Step 4: Upload Raw Daily File ({selected_week})", type=["xlsx", "xls"], key="daily")
     rate_multiplier = st.number_input("Rate Multiplier per Unit (KSh):", value=60.0, step=1.0)
 
-# Build Active Route Codes Lookup
+# Build Active Route Codes Map
 active_route_mapping = DEFAULT_ROUTE_MAPPING.copy()
 
 if codes_file is not None:
@@ -141,13 +141,13 @@ if daily_file is not None:
             if header_has_days:
                 for c_idx, col_name in enumerate(df_raw.columns):
                     c_str = str(col_name).strip()
-                    if c_str.isdigit():
+                    if c_str.isdigit() and c_idx > 0:
                         day_cols_info.append((f"Day {int(c_str)}", c_idx - 1, c_idx))
                 start_row = 1
             else:
                 for c_idx in range(len(df_raw.columns)):
                     val = df_raw.iloc[0, c_idx]
-                    if pd.notna(val) and str(val).strip().isdigit():
+                    if pd.notna(val) and str(val).strip().isdigit() and c_idx > 0:
                         day_cols_info.append((f"Day {int(str(val).strip())}", c_idx - 1, c_idx))
                 start_row = 2
 
@@ -169,16 +169,16 @@ if daily_file is not None:
             if unmapped_routes:
                 st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned default code 'T00'.")
 
-            # Daily Breakdown Processing
+            # Daily Grid Construction
             df_daily_grid = pd.DataFrame.from_dict(route_records, orient='index').fillna(0)
             df_daily_grid.index.name = "Route"
             df_daily_grid = df_daily_grid.reset_index()
-            day_cols_sorted = sorted([c for c in df_daily_grid.columns if c != "Route"], key=lambda x: int(x.replace("Day ", "")))
             
+            day_cols_sorted = sorted([c for c in df_daily_grid.columns if c != "Route"], key=lambda x: int(x.replace("Day ", "")))
             df_daily_grid = df_daily_grid[["Route"] + day_cols_sorted].sort_values("Route")
             weekly_totals = df_daily_grid.set_index("Route")[day_cols_sorted].sum(axis=1).to_dict()
 
-            # Map Route Codes
+            # Assign Route Codes
             df_daily_grid["Code"] = df_daily_grid["Route"].apply(lambda x: active_route_mapping.get(str(x).strip().upper(), "T00"))
             df_daily_grid["Total"] = df_daily_grid[day_cols_sorted].sum(axis=1)
 
@@ -191,7 +191,7 @@ if daily_file is not None:
 
             df_daily_grid_final = pd.concat([df_daily_grid, pd.DataFrame([daily_totals_row])], ignore_index=True)
 
-            # Master Summary Processing
+            # Process Master Summary Sheet
             existing_sheets = {}
             if master_file is not None:
                 xls_master = pd.ExcelFile(master_file)
@@ -201,23 +201,32 @@ if daily_file is not None:
             else:
                 df_master = pd.DataFrame(columns=["Route", "week 1", "week 2", "week 3", "week 4", "sum", "AMOUNT", "Code"])
 
-            if len(df_master) > 0 and df_master.iloc[0]["Route"] == "Route":
+            if len(df_master) > 0 and str(df_master.iloc[0]["Route"]).strip() == "Route":
                 df_master.columns = df_master.iloc[0].values
                 df_master = df_master.iloc[1:].reset_index(drop=True)
 
             df_master = df_master[df_master["Route"].astype(str).str.strip().str.upper() != "SUM TOTAL"].copy()
+            df_master["Route_Clean"] = df_master["Route"].astype(str).str.strip().str.upper()
 
             for col in ["week 1", "week 2", "week 3", "week 4"]:
                 if col not in df_master.columns:
                     df_master[col] = 0.0
                 df_master[col] = pd.to_numeric(df_master[col], errors='coerce').fillna(0.0)
 
-            route_series = df_master["Route"].astype(str).str.strip().str.upper()
-            all_routes = set(route_series).union(set(weekly_totals.keys()))
-            master_dict = df_master.set_index(df_master["Route"].astype(str).str.strip().str.upper()).to_dict('index')
+            # Group duplicates safely if present
+            df_master = df_master.groupby("Route_Clean", as_index=False).agg({
+                "Route": "first",
+                "week 1": "sum",
+                "week 2": "sum",
+                "week 3": "sum",
+                "week 4": "sum"
+            })
+
+            all_routes = sorted(list(set(df_master["Route_Clean"]).union(set(weekly_totals.keys()))))
+            master_dict = df_master.set_index("Route_Clean").to_dict('index')
             
             updated_rows = []
-            for r in sorted(all_routes):
+            for r in all_routes:
                 row_data = master_dict.get(r, {"Route": r, "week 1": 0.0, "week 2": 0.0, "week 3": 0.0, "week 4": 0.0})
                 if r in weekly_totals:
                     row_data[selected_week] = weekly_totals[r]
