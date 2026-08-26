@@ -7,37 +7,6 @@ from openpyxl.styles import Font, PatternFill, Alignment
 st.set_page_config(page_title="Route Summary Master Pro", layout="wide")
 st.title("🚌 Monthly Route Summary Automator")
 
-# Default Route Code Mapping (Includes all standard and new routes)
-DEFAULT_ROUTE_MAPPING = {
-    # Original Routes
-    "GITHARI": "T65", "BRIDGES": "T04", "CENTRE": "T33",
-    "CHEBA NGURUKA": "T05", "CHEBA-B": "T57", "CHOBE": "T14",
-    "CHUMA": "T09", "CIONDO-B": "T13", "DAM": "T18",
-    "EXLEES": "T68", "FARU": "T16", "GACATA": "T40",
-    "GACHUCHA-B": "T46", "GATHARA": "T67", "GATITU": "T43",
-    "GITHIMA": "T29", "GITIRI": "T31", "GITITE": "T12",
-    "GURD": "T52", "KIBORE": "T41", "KIRIMA": "T61",
-    "MAIN": "T87", "SEMIHEADQUATER": "T59", "THINDI": "T20",
-    "UPPER CIONDO": "T38", "WANGU": "T82", "YAANGA": "T27",
-    "KWARE": "T90", "KARIMA": "T91", "MUTAMAIYU": "T39",
-    "MUTAMAIYU PM": "T72", "CHUMA-B": "T95",
-    
-    # Newly Added Unmapped Routes
-    "KANINI": "T101", "HEADQUARTER-B": "T102", "KARIAHU": "T103", 
-    "KAHUHO": "T104", "NDONGONYE": "T105", "KANABA": "T106", 
-    "RUTEREB": "T107", "KARATI": "T108", "KITOGO": "T109", 
-    "KAMUNYAKA": "T110", "KIANDEGE": "T111", "MUTAMAIYU-B": "T112", 
-    "HOALYOAK": "T113", "SEMI MUNYAKA": "T114", "NYAIROMA": "T115", 
-    "KAMBI": "T116", "SOKOMOKO": "T117", "NYAYOWARD": "T118", 
-    "KANGUTU": "T119", "JENSEN": "T120", "MBARUK": "T121", 
-    "WIRUGAMIE": "T122", "MANYATTA": "T123", "KIRATHIMO": "T124", 
-    "MWANGAZA": "T125", "ITHANUA": "T126", "SASUMUA": "T127", 
-    "KANYUGI": "T128", "MUTIINI": "T129", "KIJIKO": "T130", 
-    "SOWETO": "T131", "SUNSHINE": "T132", "NYAKIO": "T133", 
-    "KINJA": "T134", "LIINE MOJA-B": "T135", "KARUANGI": "T136", 
-    "MAKUTANO": "T137", "JESHI": "T138"
-}
-
 def parse_custom_codes_file(uploaded_file):
     """Safely extracts Route and Code mapping without column overlap errors."""
     df_raw = pd.read_excel(uploaded_file)
@@ -124,29 +93,32 @@ def style_excel_workbook(writer, df_master, existing_sheets):
 col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
-    master_file = st.file_uploader("📁 Step 1: Upload Master File (Optional)", type=["xlsx", "xls"], key="master")
+    codes_file = st.file_uploader("🏷️ Step 1: Upload Route Codes Sheet (Required)", type=["xlsx", "xls"], key="codes")
 
 with col2:
-    codes_file = st.file_uploader("🏷️ Step 2: Custom Route Codes Sheet (Optional)", type=["xlsx", "xls"], key="codes")
+    master_file = st.file_uploader("📁 Step 2: Upload Master File (Optional)", type=["xlsx", "xls"], key="master")
 
 with col3:
     selected_week = st.selectbox("📅 Step 3: Select Week to Update:", ["week 1", "week 2", "week 3", "week 4"])
     daily_file = st.file_uploader(f"📄 Step 4: Upload Raw Daily File ({selected_week})", type=["xlsx", "xls"], key="daily")
     rate_multiplier = st.number_input("Rate Multiplier per Unit (KSh):", value=60.0, step=1.0)
 
-# Build Active Route Codes Map
-active_route_mapping = DEFAULT_ROUTE_MAPPING.copy()
+# Build Active Route Codes Map entirely from uploaded file
+active_route_mapping = {}
 
 if codes_file is not None:
     try:
-        custom_codes = parse_custom_codes_file(codes_file)
-        active_route_mapping.update(custom_codes)
-        st.success(f"✅ Loaded {len(custom_codes)} route codes from uploaded file!")
+        active_route_mapping = parse_custom_codes_file(codes_file)
+        st.success(f"✅ Loaded {len(active_route_mapping)} route codes!")
     except Exception as e:
         st.error(f"⚠️ Error reading Route Codes file: {e}")
+else:
+    st.info("📌 Please upload your Route Codes file in Step 1 to begin.")
 
 if daily_file is not None:
-    if st.button("🚀 Process & Update Master Workbook", type="primary"):
+    if not active_route_mapping:
+        st.error("❌ You must upload a Route Codes file in Step 1 before processing!")
+    elif st.button("🚀 Process & Update Master Workbook", type="primary"):
         try:
             xls_daily = pd.ExcelFile(daily_file)
             df_raw = pd.read_excel(xls_daily, sheet_name=0)
@@ -183,7 +155,7 @@ if daily_file is not None:
                         route_records[r_clean][day_label] = float(v_num) if pd.notna(v_num) else 0.0
 
             if unmapped_routes:
-                st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned auto-generated codes.")
+                st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned default code 'T00'.")
 
             # Daily Grid Construction
             df_daily_grid = pd.DataFrame.from_dict(route_records, orient='index').fillna(0)
@@ -194,7 +166,7 @@ if daily_file is not None:
             df_daily_grid = df_daily_grid[["Route"] + day_cols_sorted].sort_values("Route")
             weekly_totals = df_daily_grid.set_index("Route")[day_cols_sorted].sum(axis=1).to_dict()
 
-            # Assign Route Codes
+            # Assign Route Codes from loaded mapping
             df_daily_grid["Code"] = df_daily_grid["Route"].apply(lambda x: active_route_mapping.get(str(x).strip().upper(), "T00"))
             df_daily_grid["Total"] = df_daily_grid[day_cols_sorted].sum(axis=1)
 
