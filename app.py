@@ -7,8 +7,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 st.set_page_config(page_title="Route Summary Master Pro", layout="wide")
 st.title("🚌 Monthly Route Summary Automator")
 
-# Master Route Code Mapping
-ROUTE_MAPPING = {
+# Fallback Master Route Code Mapping
+DEFAULT_ROUTE_MAPPING = {
     "GITHARI": "T65", "BRIDGES": "T04", "CENTRE": "T33",
     "CHEBA NGURUKA": "T05", "CHEBA-B": "T57", "CHOBE": "T14",
     "CHUMA": "T09", "CIONDO-B": "T13", "DAM": "T18",
@@ -69,15 +69,36 @@ def style_excel_workbook(writer, df_master, existing_sheets):
             ws_curr.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
 # --- APP LAYOUT ---
-col1, col2 = st.columns([1, 1])
+col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
-    master_file = st.file_uploader("📁 Step 1: Upload Master File (Optional for Week 1)", type=["xlsx", "xls"], key="master")
+    master_file = st.file_uploader("📁 Step 1: Upload Master File (Optional)", type=["xlsx", "xls"], key="master")
 
 with col2:
-    selected_week = st.selectbox("📅 Step 2: Select Week to Add/Update:", ["week 1", "week 2", "week 3", "week 4"])
-    daily_file = st.file_uploader(f"📄 Step 3: Upload Raw Daily File for {selected_week}", type=["xlsx", "xls"], key="daily")
+    codes_file = st.file_uploader("🏷️ Step 2: Custom Route Codes Sheet (Optional)", type=["xlsx", "xls"], key="codes")
+
+with col3:
+    selected_week = st.selectbox("📅 Step 3: Select Week to Update:", ["week 1", "week 2", "week 3", "week 4"])
+    daily_file = st.file_uploader(f"📄 Step 4: Upload Raw Daily File ({selected_week})", type=["xlsx", "xls"], key="daily")
     rate_multiplier = st.number_input("Rate Multiplier per Unit (KSh):", value=60.0, step=1.0)
+
+# Process Dynamic Route Codes Lookup
+active_route_mapping = DEFAULT_ROUTE_MAPPING.copy()
+
+if codes_file is not None:
+    try:
+        df_codes_input = pd.read_excel(codes_file)
+        # Identify Route and Code columns dynamically
+        route_col_name = next((c for c in df_codes_input.columns if "route" in str(c).lower()), df_codes_input.columns[0])
+        code_col_name = next((c for c in df_codes_input.columns if "code" in str(c).lower()), df_codes_input.columns[1])
+        
+        for _, row in df_codes_input.dropna(subset=[route_col_name]).iterrows():
+            r_key = str(row[route_col_name]).strip().upper()
+            c_val = str(row[code_col_name]).strip() if pd.notna(row[code_col_name]) else "T00"
+            active_route_mapping[r_key] = c_val
+        st.sidebar.success(f"Loaded {len(df_codes_input)} custom route codes!")
+    except Exception as e:
+        st.sidebar.error(f"Error loading Route Codes file: {e}")
 
 if daily_file is not None:
     if st.button("🚀 Process & Update Master Workbook", type="primary"):
@@ -109,7 +130,7 @@ if daily_file is not None:
                     r_var = df_raw.iloc[r, val_col]
                     if pd.notna(r_name) and str(r_name).strip() not in ["", "0", "Route", "nan", "NaN"]:
                         r_clean = str(r_name).strip().upper()
-                        if r_clean not in ROUTE_MAPPING:
+                        if r_clean not in active_route_mapping:
                             unmapped_routes.add(r_clean)
                         if r_clean not in route_records:
                             route_records[r_clean] = {}
@@ -117,23 +138,29 @@ if daily_file is not None:
                         route_records[r_clean][day_label] = float(v_num) if pd.notna(v_num) else 0.0
 
             if unmapped_routes:
-                st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Default code 'T00' applied.")
+                st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned default code 'T00'.")
 
-            # Construct Daily Grid
+            # Construct Daily Grid with Codes
             df_daily_grid = pd.DataFrame.from_dict(route_records, orient='index').fillna(0)
             df_daily_grid.index.name = "Route"
             df_daily_grid = df_daily_grid.reset_index()
             day_cols_sorted = sorted([c for c in df_daily_grid.columns if c != "Route"], key=lambda x: int(x.replace("Day ", "")))
             
-            # Sort routes and calculate weekly sum per route before adding total row/cols
             df_daily_grid = df_daily_grid[["Route"] + day_cols_sorted].sort_values("Route")
             weekly_totals = df_daily_grid.set_index("Route")[day_cols_sorted].sum(axis=1).to_dict()
+
+            # Add Route Code column to Daily Breakdown
+            df_daily_grid["Code"] = df_daily_grid["Route"].map(lambda x: active_route_mapping.get(x, "T00"))
 
             # Add Row Total Column ("Total")
             df_daily_grid["Total"] = df_daily_grid[day_cols_sorted].sum(axis=1)
 
+            # Reorder columns so Code is next to Route
+            final_daily_cols = ["Route", "Code"] + day_cols_sorted + ["Total"]
+            df_daily_grid = df_daily_grid[final_daily_cols]
+
             # Add Bottom Summary Total Row ("SUM TOTAL")
-            daily_totals_row = {"Route": "SUM TOTAL"}
+            daily_totals_row = {"Route": "SUM TOTAL", "Code": ""}
             for col in day_cols_sorted + ["Total"]:
                 daily_totals_row[col] = df_daily_grid[col].sum()
 
@@ -172,7 +199,7 @@ if daily_file is not None:
                 
                 w_sum = sum([float(row_data.get(w, 0.0)) for w in ["week 1", "week 2", "week 3", "week 4"]])
                 amt = w_sum * rate_multiplier
-                code = ROUTE_MAPPING.get(r, "T00")
+                code = active_route_mapping.get(r, "T00")
                 
                 row_data["Route"] = row_data.get("Route", r)
                 row_data["sum"] = w_sum
