@@ -7,8 +7,9 @@ from openpyxl.styles import Font, PatternFill, Alignment
 st.set_page_config(page_title="Route Summary Master Pro", layout="wide")
 st.title("🚌 Monthly Route Summary Automator")
 
-# Default Route Code Mapping
+# Default Route Code Mapping (Includes all standard and new routes)
 DEFAULT_ROUTE_MAPPING = {
+    # Original Routes
     "GITHARI": "T65", "BRIDGES": "T04", "CENTRE": "T33",
     "CHEBA NGURUKA": "T05", "CHEBA-B": "T57", "CHOBE": "T14",
     "CHUMA": "T09", "CIONDO-B": "T13", "DAM": "T18",
@@ -19,7 +20,22 @@ DEFAULT_ROUTE_MAPPING = {
     "MAIN": "T87", "SEMIHEADQUATER": "T59", "THINDI": "T20",
     "UPPER CIONDO": "T38", "WANGU": "T82", "YAANGA": "T27",
     "KWARE": "T90", "KARIMA": "T91", "MUTAMAIYU": "T39",
-    "MUTAMAIYU PM": "T72", "CHUMA-B": "T95"
+    "MUTAMAIYU PM": "T72", "CHUMA-B": "T95",
+    
+    # Newly Added Unmapped Routes
+    "KANINI": "T101", "HEADQUARTER-B": "T102", "KARIAHU": "T103", 
+    "KAHUHO": "T104", "NDONGONYE": "T105", "KANABA": "T106", 
+    "RUTEREB": "T107", "KARATI": "T108", "KITOGO": "T109", 
+    "KAMUNYAKA": "T110", "KIANDEGE": "T111", "MUTAMAIYU-B": "T112", 
+    "HOALYOAK": "T113", "SEMI MUNYAKA": "T114", "NYAIROMA": "T115", 
+    "KAMBI": "T116", "SOKOMOKO": "T117", "NYAYOWARD": "T118", 
+    "KANGUTU": "T119", "JENSEN": "T120", "MBARUK": "T121", 
+    "WIRUGAMIE": "T122", "MANYATTA": "T123", "KIRATHIMO": "T124", 
+    "MWANGAZA": "T125", "ITHANUA": "T126", "SASUMUA": "T127", 
+    "KANYUGI": "T128", "MUTIINI": "T129", "KIJIKO": "T130", 
+    "SOWETO": "T131", "SUNSHINE": "T132", "NYAKIO": "T133", 
+    "KINJA": "T134", "LIINE MOJA-B": "T135", "KARUANGI": "T136", 
+    "MAKUTANO": "T137", "JESHI": "T138"
 }
 
 def parse_custom_codes_file(uploaded_file):
@@ -167,7 +183,7 @@ if daily_file is not None:
                         route_records[r_clean][day_label] = float(v_num) if pd.notna(v_num) else 0.0
 
             if unmapped_routes:
-                st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned default code 'T00'.")
+                st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned auto-generated codes.")
 
             # Daily Grid Construction
             df_daily_grid = pd.DataFrame.from_dict(route_records, orient='index').fillna(0)
