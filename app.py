@@ -8,41 +8,49 @@ st.set_page_config(page_title="Route Summary Master Pro", layout="wide")
 st.title("🚌 Monthly Route Summary Automator")
 
 def parse_custom_codes_file(uploaded_file):
-    """Safely extracts Route and Code mapping without column overlap errors."""
+    """
+    Dynamically parses route-to-code mapping sheets (handles top blank rows,
+    header rows anywhere, and flexible column orderings like Code | ROUTE).
+    """
     df_raw = pd.read_excel(uploaded_file)
     
-    route_col = None
-    code_col = None
-    
-    # 1. Identify Code column first
-    for col in df_raw.columns:
-        col_str = str(col).lower().strip()
-        if any(keyword in col_str for keyword in ["code", "t-code", "tcode", "id"]):
-            code_col = col
+    start_row = 0
+    code_col_idx = 0
+    route_col_idx = 1
+    found_header = False
+
+    # Scan rows to locate the header row (e.g. containing 'Code' and 'ROUTE')
+    for idx, row in df_raw.iterrows():
+        row_str = [str(val).strip().upper() for val in row.values if pd.notna(val)]
+        if any("CODE" in s for s in row_str) or any("ROUTE" in s for s in row_str):
+            start_row = idx + 1
+            found_header = True
+            for col_i, val in enumerate(row.values):
+                val_s = str(val).strip().upper()
+                if "CODE" in val_s:
+                    code_col_idx = col_i
+                elif "ROUTE" in val_s:
+                    route_col_idx = col_i
             break
 
-    # 2. Identify Route column (excluding code column)
-    for col in df_raw.columns:
-        if col == code_col:
-            continue
-        col_str = str(col).lower().strip()
-        if any(keyword in col_str for keyword in ["route", "station", "location", "name"]):
-            route_col = col
-            break
-
-    # Fallbacks for non-standard header names
-    if route_col is None:
-        route_col = df_raw.columns[0]
-    if code_col is None:
-        code_col = df_raw.columns[1] if len(df_raw.columns) > 1 else df_raw.columns[0]
+    # Fallback if no explicit header row text was found
+    if not found_header:
+        code_col_idx = 0
+        route_col_idx = 1 if len(df_raw.columns) > 1 else 0
+        start_row = 0
 
     custom_mapping = {}
-    for _, row in df_raw.iterrows():
-        r_val = str(row[route_col]).strip().upper()
-        c_val = str(row[code_col]).strip() if pd.notna(row[code_col]) else "T00"
+    for idx in range(start_row, len(df_raw)):
+        code_val = df_raw.iloc[idx, code_col_idx]
+        route_val = df_raw.iloc[idx, route_col_idx]
         
-        if r_val not in ["NAN", "ROUTE", "ROUTE NAME", "CODE", "T-CODE", "TCODE", "", "NONE"]:
-            custom_mapping[r_val] = c_val
+        if pd.notna(route_val) and pd.notna(code_val):
+            r_str = str(route_val).strip().upper()
+            c_str = str(code_val).strip().upper()
+            
+            # Ignore sub-headers or empty entries
+            if r_str not in ["ROUTE", "ROUTE NAME", "NAN", "", "NONE"] and c_str not in ["CODE", "T-CODE", "TCODE", "NAN", ""]:
+                custom_mapping[r_str] = c_str
 
     return custom_mapping
 
