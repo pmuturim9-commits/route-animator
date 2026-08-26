@@ -23,30 +23,29 @@ DEFAULT_ROUTE_MAPPING = {
 }
 
 def parse_custom_codes_file(uploaded_file):
-    """Flexible parser that detects route names and codes regardless of column titles or header locations."""
+    """Strict column detection to ensure Route names map to T-Codes correctly."""
     df_raw = pd.read_excel(uploaded_file)
     
     route_col = None
     code_col = None
     
-    # Strategy 1: Check column headers
+    # 1. Identify Code column first (must contain 'code', 't-code', 'tcode', or 'id')
     for col in df_raw.columns:
+        col_str = str(col).lower().strip()
+        if any(keyword in col_str for keyword in ["code", "t-code", "tcode", "id"]):
+            code_col = col
+            break
+
+    # 2. Identify Route column (excluding the code column)
+    for col in df_raw.columns:
+        if col == code_col:
+            continue
         col_str = str(col).lower().strip()
         if any(keyword in col_str for keyword in ["route", "station", "location", "name"]):
             route_col = col
-        if any(keyword in col_str for keyword in ["code", "t-code", "id", "number"]):
-            code_col = col
+            break
 
-    # Strategy 2: Check row 0 if headers were not recognized
-    if route_col is None or code_col is None:
-        for c_idx in range(len(df_raw.columns)):
-            val0 = str(df_raw.iloc[0, c_idx]).lower().strip()
-            if any(keyword in val0 for keyword in ["route", "station", "location"]):
-                route_col = df_raw.columns[c_idx]
-            if any(keyword in val0 for keyword in ["code", "t-code", "id"]):
-                code_col = df_raw.columns[c_idx]
-
-    # Strategy 3: Default to column 0 for Route and column 1 for Code
+    # Fallbacks if headers aren't standard
     if route_col is None:
         route_col = df_raw.columns[0]
     if code_col is None:
@@ -57,8 +56,8 @@ def parse_custom_codes_file(uploaded_file):
         r_val = str(row[route_col]).strip().upper()
         c_val = str(row[code_col]).strip() if pd.notna(row[code_col]) else "T00"
         
-        # Filter out header texts or empty rows
-        if r_val not in ["NAN", "ROUTE", "ROUTE NAME", "CODE", "T-CODE", "", "NONE"]:
+        # Ensure header strings are ignored
+        if r_val not in ["NAN", "ROUTE", "ROUTE NAME", "CODE", "T-CODE", "TCODE", "", "NONE"]:
             custom_mapping[r_val] = c_val
 
     return custom_mapping
@@ -179,8 +178,8 @@ if daily_file is not None:
             df_daily_grid = df_daily_grid[["Route"] + day_cols_sorted].sort_values("Route")
             weekly_totals = df_daily_grid.set_index("Route")[day_cols_sorted].sum(axis=1).to_dict()
 
-            # Attach Custom Codes & Totals
-            df_daily_grid["Code"] = df_daily_grid["Route"].map(lambda x: active_route_mapping.get(x, "T00"))
+            # Map Route Codes
+            df_daily_grid["Code"] = df_daily_grid["Route"].apply(lambda x: active_route_mapping.get(str(x).strip().upper(), "T00"))
             df_daily_grid["Total"] = df_daily_grid[day_cols_sorted].sum(axis=1)
 
             final_daily_cols = ["Route", "Code"] + day_cols_sorted + ["Total"]
