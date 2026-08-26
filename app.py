@@ -2,11 +2,10 @@ import streamlit as st
 import pandas as pd
 import io
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment
 
 st.set_page_config(page_title="Route Summary Master Pro", layout="wide")
-
-st.title("🚌 Monthly Route Summary Automator (Enhanced)")
+st.title("🚌 Monthly Route Summary Automator")
 
 # Master Route Code Mapping
 ROUTE_MAPPING = {
@@ -25,23 +24,18 @@ ROUTE_MAPPING = {
 
 def style_excel_workbook(writer, df_master, existing_sheets):
     """Applies professional styling, auto-adjusts column widths, and formats numbers."""
-    workbook = writer.book
-    
-    # Style Primary Sheet
     ws = writer.sheets["Monthly Summary"]
     header_fill = PatternFill(start_color="0D9488", end_color="0D9488", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     total_fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
     bold_font = Font(name="Calibri", size=11, bold=True)
     
-    # Format Headers
     for col_idx, col_name in enumerate(df_master.columns, start=1):
         cell = ws.cell(row=1, column=col_idx)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
         
-    # Format Data & Totals
     for row_idx in range(2, len(df_master) + 2):
         is_total_row = (row_idx == len(df_master) + 1)
         for col_idx in range(1, len(df_master.columns) + 1):
@@ -49,14 +43,11 @@ def style_excel_workbook(writer, df_master, existing_sheets):
             if is_total_row:
                 cell.fill = total_fill
                 cell.font = bold_font
-            
-            # Format Numbers
-            if col_idx in [2, 3, 4, 5, 6]: # Week cols & Sum
+            if col_idx in [2, 3, 4, 5, 6]:
                 cell.number_format = '#,##0.0'
-            elif col_idx == 7: # Amount
+            elif col_idx == 7:
                 cell.number_format = 'KSh #,##0.00'
 
-    # Auto-adjust column widths across all sheets
     for sheetname in writer.sheets:
         ws_curr = writer.sheets[sheetname]
         for col in ws_curr.columns:
@@ -81,26 +72,37 @@ if daily_file is not None:
             xls_daily = pd.ExcelFile(daily_file)
             df_raw = pd.read_excel(xls_daily, sheet_name=0)
             
-            days, day_col_indices = [], []
-            for c_idx in range(len(df_raw.columns)):
-                val = df_raw.iloc[0, c_idx]
-                if pd.notna(val) and str(val).strip().isdigit():
-                    days.append(f"Day {int(val)}")
-                    day_col_indices.append(c_idx)
+            day_cols_info = []
+            header_has_days = any(str(c).strip().isdigit() for c in df_raw.columns)
             
+            if header_has_days:
+
+                for c_idx, col_name in enumerate(df_raw.columns):
+                    c_str = str(col_name).strip()
+                    if c_str.isdigit():
+                        day_cols_info.append((f"Day {int(c_str)}", c_idx - 1, c_idx))
+                start_row = 1
+            else:
+
+                for c_idx in range(len(df_raw.columns)):
+                    val = df_raw.iloc[0, c_idx]
+                    if pd.notna(val) and str(val).strip().isdigit():
+                        day_cols_info.append((f"Day {int(str(val).strip())}", c_idx - 1, c_idx))
+                start_row = 2
+
             route_records = {}
             unmapped_routes = set()
-            for day_label, c_idx in zip(days, day_col_indices):
-                route_col, var_col = c_idx - 1, c_idx
-                for r in range(2, len(df_raw)):
-                    r_name, r_var = df_raw.iloc[r, route_col], df_raw.iloc[r, var_col]
-                    if pd.notna(r_name) and str(r_name).strip() not in ["", "0"]:
+            for day_label, route_col, val_col in day_cols_info:
+                for r in range(start_row, len(df_raw)):
+                    r_name = df_raw.iloc[r, route_col]
+                    r_var = df_raw.iloc[r, val_col]
+                    if pd.notna(r_name) and str(r_name).strip() not in ["", "0", "Route", "nan", "NaN"]:
                         r_clean = str(r_name).strip().upper()
                         if r_clean not in ROUTE_MAPPING:
                             unmapped_routes.add(r_clean)
                         if r_clean not in route_records:
                             route_records[r_clean] = {}
-                        v_num = pd.to_numeric(r_var, errors='coerce') if pd.notna(r_var) else 0
+                        v_num = pd.to_numeric(r_var, errors='coerce') if pd.notna(r_var) else 0.0
                         route_records[r_clean][day_label] = float(v_num) if pd.notna(v_num) else 0.0
 
             if unmapped_routes:
@@ -175,7 +177,7 @@ if daily_file is not None:
 
             # Key Metrics Display
             m1, m2, m3 = st.columns(3)
-            m1.metric(f"Total Volume ({selected_week})", f"{weekly_totals.get('SUM TOTAL', df_updated_master[selected_week].sum()):,.1f}")
+            m1.metric(f"Total Volume ({selected_week})", f"{df_updated_master[selected_week].sum():,.1f}")
             m2.metric("Cumulative Monthly Volume", f"{df_updated_master['sum'].sum():,.1f}")
             m3.metric("Cumulative Amount", f"KSh {df_updated_master['AMOUNT'].sum():,.2f}")
 
