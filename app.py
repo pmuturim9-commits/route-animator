@@ -1,19 +1,20 @@
-import streamlit as st
-import pandas as pd
 import io
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Alignment, Font, PatternFill
+import pandas as pd
+import streamlit as st
 
 st.set_page_config(page_title="Route Summary Master Pro", layout="wide")
 st.title("🚌 Monthly Route Summary Automator")
 
+
 def parse_custom_codes_file(uploaded_file):
-    """
-    Dynamically parses route-to-code mapping sheets (handles top blank rows,
+    """Dynamically parses route-to-code mapping sheets (handles top blank rows,
+
     header rows anywhere, and flexible column orderings like Code | ROUTE).
     """
     df_raw = pd.read_excel(uploaded_file)
-    
+
     start_row = 0
     code_col_idx = 0
     route_col_idx = 1
@@ -21,7 +22,9 @@ def parse_custom_codes_file(uploaded_file):
 
     # Scan rows to locate the header row (e.g. containing 'Code' and 'ROUTE')
     for idx, row in df_raw.iterrows():
-        row_str = [str(val).strip().upper() for val in row.values if pd.notna(val)]
+        row_str = [
+            str(val).strip().upper() for val in row.values if pd.notna(val)
+        ]
         if any("CODE" in s for s in row_str) or any("ROUTE" in s for s in row_str):
             start_row = idx + 1
             found_header = True
@@ -43,24 +46,35 @@ def parse_custom_codes_file(uploaded_file):
     for idx in range(start_row, len(df_raw)):
         code_val = df_raw.iloc[idx, code_col_idx]
         route_val = df_raw.iloc[idx, route_col_idx]
-        
+
         if pd.notna(route_val) and pd.notna(code_val):
             r_str = str(route_val).strip().upper()
             c_str = str(code_val).strip().upper()
-            
+
             # Ignore sub-headers or empty entries
-            if r_str not in ["ROUTE", "ROUTE NAME", "NAN", "", "NONE"] and c_str not in ["CODE", "T-CODE", "TCODE", "NAN", ""]:
+            if r_str not in [
+                "ROUTE",
+                "ROUTE NAME",
+                "NAN",
+                "",
+                "NONE",
+            ] and c_str not in ["CODE", "T-CODE", "TCODE", "NAN", ""]:
                 custom_mapping[r_str] = c_str
 
     return custom_mapping
 
+
 def style_excel_workbook(writer, df_master, existing_sheets):
     """Applies clean formatting and cell styling to output workbook."""
-    header_fill = PatternFill(start_color="0D9488", end_color="0D9488", fill_type="solid")
+    header_fill = PatternFill(
+        start_color="0D9488", end_color="0D9488", fill_type="solid"
+    )
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-    total_fill = PatternFill(start_color="FEF08A", end_color="FEF08A", fill_type="solid")
+    total_fill = PatternFill(
+        start_color="FEF08A", end_color="FEF08A", fill_type="solid"
+    )
     bold_font = Font(name="Calibri", size=11, bold=True)
-    
+
     if "Monthly Summary" in writer.sheets:
         ws_master = writer.sheets["Monthly Summary"]
         for col_idx in range(1, len(df_master.columns) + 1):
@@ -68,18 +82,18 @@ def style_excel_workbook(writer, df_master, existing_sheets):
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center")
-            
+
         for row_idx in range(2, len(df_master) + 2):
-            is_total_row = (row_idx == len(df_master) + 1)
+            is_total_row = row_idx == len(df_master) + 1
             for col_idx in range(1, len(df_master.columns) + 1):
                 cell = ws_master.cell(row=row_idx, column=col_idx)
                 if is_total_row:
                     cell.fill = total_fill
                     cell.font = bold_font
                 if col_idx in [2, 3, 4, 5, 6]:
-                    cell.number_format = '#,##0.0'
+                    cell.number_format = "#,##0.0"
                 elif col_idx == 7:
-                    cell.number_format = 'KSh #,##0.00'
+                    cell.number_format = "KSh #,##0.00"
 
     for sheetname in writer.sheets:
         ws_curr = writer.sheets[sheetname]
@@ -93,23 +107,41 @@ def style_excel_workbook(writer, df_master, existing_sheets):
                 ws_curr.cell(row=r, column=max_c).font = bold_font
 
         for col in ws_curr.columns:
-            max_len = max(len(str(cell.value or '')) for cell in col)
+            max_len = max(len(str(cell.value or "")) for cell in col)
             col_letter = openpyxl.utils.get_column_letter(col[0].column)
             ws_curr.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
 
 # --- USER INTERFACE ---
 col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
-    codes_file = st.file_uploader("🏷️ Step 1: Upload Route Codes Sheet (Required)", type=["xlsx", "xls"], key="codes")
+    codes_file = st.file_uploader(
+        "🏷️ Step 1: Upload Route Codes Sheet (Required)",
+        type=["xlsx", "xls"],
+        key="codes",
+    )
 
 with col2:
-    master_file = st.file_uploader("📁 Step 2: Upload Master File (Optional)", type=["xlsx", "xls"], key="master")
+    master_file = st.file_uploader(
+        "📁 Step 2: Upload Master File (Optional)",
+        type=["xlsx", "xls"],
+        key="master",
+    )
 
 with col3:
-    selected_week = st.selectbox("📅 Step 3: Select Week to Update:", ["week 1", "week 2", "week 3", "week 4"])
-    daily_file = st.file_uploader(f"📄 Step 4: Upload Raw Daily File ({selected_week})", type=["xlsx", "xls"], key="daily")
-    rate_multiplier = st.number_input("Rate Multiplier per Unit (KSh):", value=60.0, step=1.0)
+    selected_week = st.selectbox(
+        "📅 Step 3: Select Week to Update:",
+        ["week 1", "week 2", "week 3", "week 4"],
+    )
+    daily_file = st.file_uploader(
+        f"📄 Step 4: Upload Raw Daily File ({selected_week})",
+        type=["xlsx", "xls"],
+        key="daily",
+    )
+    rate_multiplier = st.number_input(
+        "Rate Multiplier per Unit (KSh):", value=60.0, step=1.0
+    )
 
 # Build Active Route Codes Map entirely from uploaded file
 active_route_mapping = {}
@@ -125,27 +157,37 @@ else:
 
 if daily_file is not None:
     if not active_route_mapping:
-        st.error("❌ You must upload a Route Codes file in Step 1 before processing!")
+        st.error(
+            "❌ You must upload a Route Codes file in Step 1 before processing!"
+        )
     elif st.button("🚀 Process & Update Master Workbook", type="primary"):
         try:
             xls_daily = pd.ExcelFile(daily_file)
             df_raw = pd.read_excel(xls_daily, sheet_name=0)
-            
+
             day_cols_info = []
-            header_has_days = any(str(c).strip().isdigit() for c in df_raw.columns)
-            
+            header_has_days = any(
+                str(c).strip().isdigit() for c in df_raw.columns
+            )
+
             if header_has_days:
                 for c_idx, col_name in enumerate(df_raw.columns):
                     c_str = str(col_name).strip()
                     if c_str.isdigit() and c_idx > 0:
                         day_cols_info.append((f"Day {int(c_str)}", c_idx - 1, c_idx))
-                start_row = 1
+                start_row = 0
             else:
                 for c_idx in range(len(df_raw.columns)):
                     val = df_raw.iloc[0, c_idx]
-                    if pd.notna(val) and str(val).strip().isdigit() and c_idx > 0:
-                        day_cols_info.append((f"Day {int(str(val).strip())}", c_idx - 1, c_idx))
-                start_row = 2
+                    if (
+                        pd.notna(val)
+                        and str(val).strip().isdigit()
+                        and c_idx > 0
+                    ):
+                        day_cols_info.append(
+                            (f"Day {int(str(val).strip())}", c_idx - 1, c_idx)
+                        )
+                start_row = 1
 
             route_records = {}
             unmapped_routes = set()
@@ -153,29 +195,58 @@ if daily_file is not None:
                 for r in range(start_row, len(df_raw)):
                     r_name = df_raw.iloc[r, route_col]
                     r_var = df_raw.iloc[r, val_col]
-                    if pd.notna(r_name) and str(r_name).strip() not in ["", "0", "Route", "nan", "NaN"]:
+                    if pd.notna(r_name) and str(r_name).strip() not in [
+                        "",
+                        "0",
+                        "Route",
+                        "nan",
+                        "NaN",
+                    ]:
                         r_clean = str(r_name).strip().upper()
                         if r_clean not in active_route_mapping:
                             unmapped_routes.add(r_clean)
                         if r_clean not in route_records:
                             route_records[r_clean] = {}
-                        v_num = pd.to_numeric(r_var, errors='coerce') if pd.notna(r_var) else 0.0
-                        route_records[r_clean][day_label] = float(v_num) if pd.notna(v_num) else 0.0
+                        v_num = (
+                            pd.to_numeric(r_var, errors="coerce")
+                            if pd.notna(r_var)
+                            else 0.0
+                        )
+                        route_records[r_clean][day_label] = (
+                            float(v_num) if pd.notna(v_num) else 0.0
+                        )
 
             if unmapped_routes:
-                st.warning(f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned default code 'T00'.")
+                st.warning(
+                    f"⚠️ Unmapped Routes Detected: {', '.join(unmapped_routes)}. Assigned default code 'T00'."
+                )
 
             # Daily Grid Construction
-            df_daily_grid = pd.DataFrame.from_dict(route_records, orient='index').fillna(0)
+            df_daily_grid = pd.DataFrame.from_dict(
+                route_records, orient="index"
+            ).fillna(0)
             df_daily_grid.index.name = "Route"
             df_daily_grid = df_daily_grid.reset_index()
-            
-            day_cols_sorted = sorted([c for c in df_daily_grid.columns if c != "Route"], key=lambda x: int(x.replace("Day ", "")))
-            df_daily_grid = df_daily_grid[["Route"] + day_cols_sorted].sort_values("Route")
-            weekly_totals = df_daily_grid.set_index("Route")[day_cols_sorted].sum(axis=1).to_dict()
+
+            day_cols_sorted = sorted(
+                [c for c in df_daily_grid.columns if c != "Route"],
+                key=lambda x: int(x.replace("Day ", "")),
+            )
+            df_daily_grid = df_daily_grid[["Route"] + day_cols_sorted].sort_values(
+                "Route"
+            )
+            weekly_totals = (
+                df_daily_grid.set_index("Route")[day_cols_sorted]
+                .sum(axis=1)
+                .to_dict()
+            )
 
             # Assign Route Codes from loaded mapping
-            df_daily_grid["Code"] = df_daily_grid["Route"].apply(lambda x: active_route_mapping.get(str(x).strip().upper(), "T00"))
+            df_daily_grid["Code"] = df_daily_grid["Route"].apply(
+                lambda x: active_route_mapping.get(
+                    str(x).strip().upper(), "T00"
+                )
+            )
             df_daily_grid["Total"] = df_daily_grid[day_cols_sorted].sum(axis=1)
 
             final_daily_cols = ["Route", "Code"] + day_cols_sorted + ["Total"]
@@ -185,29 +256,58 @@ if daily_file is not None:
             for col in day_cols_sorted + ["Total"]:
                 daily_totals_row[col] = df_daily_grid[col].sum()
 
-            df_daily_grid_final = pd.concat([df_daily_grid, pd.DataFrame([daily_totals_row])], ignore_index=True)
+            df_daily_grid_final = pd.concat(
+                [df_daily_grid, pd.DataFrame([daily_totals_row])],
+                ignore_index=True,
+            )
 
             # Process Master Summary Sheet
             existing_sheets = {}
             if master_file is not None:
                 xls_master = pd.ExcelFile(master_file)
                 for s in xls_master.sheet_names:
-                    existing_sheets[s] = pd.read_excel(xls_master, sheet_name=s)
-                df_master = existing_sheets.get("Monthly Summary", existing_sheets[xls_master.sheet_names[0]])
+                    existing_sheets[s] = pd.read_excel(
+                        xls_master, sheet_name=s
+                    )
+                df_master = existing_sheets.get(
+                    "Monthly Summary",
+                    existing_sheets[xls_master.sheet_names[0]],
+                )
             else:
-                df_master = pd.DataFrame(columns=["Route", "week 1", "week 2", "week 3", "week 4", "sum", "AMOUNT", "Code"])
+                df_master = pd.DataFrame(
+                    columns=[
+                        "Route",
+                        "week 1",
+                        "week 2",
+                        "week 3",
+                        "week 4",
+                        "sum",
+                        "AMOUNT",
+                        "Code",
+                    ]
+                )
 
-            if len(df_master) > 0 and str(df_master.iloc[0]["Route"]).strip() == "Route":
+            if (
+                len(df_master) > 0
+                and str(df_master.iloc[0]["Route"]).strip() == "Route"
+            ):
                 df_master.columns = df_master.iloc[0].values
                 df_master = df_master.iloc[1:].reset_index(drop=True)
 
-            df_master = df_master[df_master["Route"].astype(str).str.strip().str.upper() != "SUM TOTAL"].copy()
-            df_master["Route_Clean"] = df_master["Route"].astype(str).str.strip().str.upper()
+            df_master = df_master[
+                df_master["Route"].astype(str).str.strip().str.upper()
+                != "SUM TOTAL"
+            ].copy()
+            df_master["Route_Clean"] = (
+                df_master["Route"].astype(str).str.strip().str.upper()
+            )
 
             for col in ["week 1", "week 2", "week 3", "week 4"]:
                 if col not in df_master.columns:
                     df_master[col] = 0.0
-                df_master[col] = pd.to_numeric(df_master[col], errors='coerce').fillna(0.0)
+                df_master[col] = pd.to_numeric(
+                    df_master[col], errors="coerce"
+                ).fillna(0.0)
 
             # Group duplicates safely if present
             df_master = df_master.groupby("Route_Clean", as_index=False).agg({
@@ -215,29 +315,58 @@ if daily_file is not None:
                 "week 1": "sum",
                 "week 2": "sum",
                 "week 3": "sum",
-                "week 4": "sum"
+                "week 4": "sum",
             })
 
-            all_routes = sorted(list(set(df_master["Route_Clean"]).union(set(weekly_totals.keys()))))
-            master_dict = df_master.set_index("Route_Clean").to_dict('index')
-            
+            all_routes = sorted(
+                list(
+                    set(df_master["Route_Clean"]).union(
+                        set(weekly_totals.keys())
+                    )
+                )
+            )
+            master_dict = df_master.set_index("Route_Clean").to_dict("index")
+
             updated_rows = []
             for r in all_routes:
-                row_data = master_dict.get(r, {"Route": r, "week 1": 0.0, "week 2": 0.0, "week 3": 0.0, "week 4": 0.0})
+                row_data = master_dict.get(
+                    r,
+                    {
+                        "Route": r,
+                        "week 1": 0.0,
+                        "week 2": 0.0,
+                        "week 3": 0.0,
+                        "week 4": 0.0,
+                    },
+                )
                 if r in weekly_totals:
                     row_data[selected_week] = weekly_totals[r]
-                
-                w_sum = sum([float(row_data.get(w, 0.0)) for w in ["week 1", "week 2", "week 3", "week 4"]])
+
+                w_sum = sum([
+                    float(row_data.get(w, 0.0))
+                    for w in ["week 1", "week 2", "week 3", "week 4"]
+                ])
                 amt = w_sum * rate_multiplier
                 code = active_route_mapping.get(r, "T00")
-                
+
                 row_data["Route"] = row_data.get("Route", r)
                 row_data["sum"] = w_sum
                 row_data["AMOUNT"] = amt
                 row_data["Code"] = code
                 updated_rows.append(row_data)
 
-            df_updated_master = pd.DataFrame(updated_rows)[["Route", "week 1", "week 2", "week 3", "week 4", "sum", "AMOUNT", "Code"]]
+            df_updated_master = pd.DataFrame(updated_rows)[
+                [
+                    "Route",
+                    "week 1",
+                    "week 2",
+                    "week 3",
+                    "week 4",
+                    "sum",
+                    "AMOUNT",
+                    "Code",
+                ]
+            ]
 
             total_row = {
                 "Route": "SUM TOTAL",
@@ -247,41 +376,60 @@ if daily_file is not None:
                 "week 4": df_updated_master["week 4"].sum(),
                 "sum": df_updated_master["sum"].sum(),
                 "AMOUNT": df_updated_master["AMOUNT"].sum(),
-                "Code": ""
+                "Code": "",
             }
-            df_final_master = pd.concat([df_updated_master, pd.DataFrame([total_row])], ignore_index=True)
+            df_final_master = pd.concat(
+                [df_updated_master, pd.DataFrame([total_row])],
+                ignore_index=True,
+            )
 
             existing_sheets["Monthly Summary"] = df_final_master
-            existing_sheets[f"{selected_week.capitalize()} Daily"] = df_daily_grid_final
+            existing_sheets[f"{selected_week.capitalize()} Daily"] = (
+                df_daily_grid_final
+            )
 
             st.success(f"Successfully processed **{selected_week}**!")
 
             # Display Key Metrics
             m1, m2, m3 = st.columns(3)
-            m1.metric(f"Total Volume ({selected_week})", f"{df_updated_master[selected_week].sum():,.1f}")
-            m2.metric("Cumulative Monthly Volume", f"{df_updated_master['sum'].sum():,.1f}")
-            m3.metric("Cumulative Amount", f"KSh {df_updated_master['AMOUNT'].sum():,.2f}")
+            m1.metric(
+                f"Total Volume ({selected_week})",
+                f"{df_updated_master[selected_week].sum():,.1f}",
+            )
+            m2.metric(
+                "Cumulative Monthly Volume",
+                f"{df_updated_master['sum'].sum():,.1f}",
+            )
+            m3.metric(
+                "Cumulative Amount",
+                f"KSh {df_updated_master['AMOUNT'].sum():,.2f}",
+            )
 
-            tab1, tab2 = st.tabs(["📊 Cumulative Monthly Summary", f"📅 {selected_week.capitalize()} Daily Breakdown"])
+            tab1, tab2 = st.tabs([
+                "📊 Cumulative Monthly Summary",
+                f"📅 {selected_week.capitalize()} Daily Breakdown",
+            ])
             with tab1:
                 st.dataframe(df_final_master, use_container_width=True)
             with tab2:
                 st.dataframe(df_daily_grid_final, use_container_width=True)
 
             output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_final_master.to_excel(writer, sheet_name="Monthly Summary", index=False)
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_final_master.to_excel(
+                    writer, sheet_name="Monthly Summary", index=False
+                )
                 for s_name, s_df in existing_sheets.items():
                     if s_name != "Monthly Summary":
                         s_df.to_excel(writer, sheet_name=s_name, index=False)
-                
+
                 style_excel_workbook(writer, df_final_master, existing_sheets)
 
             st.download_button(
                 label="📥 Download Formatted Master Workbook (.xlsx)",
                 data=output.getvalue(),
                 file_name="Monthly_Route_Summary_Master.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
         except Exception as e:
