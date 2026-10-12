@@ -65,8 +65,8 @@ def parse_custom_codes_file(uploaded_file):
     return custom_mapping
 
 
-def style_excel_workbook(writer, df_master, existing_sheets):
-    """Applies clean formatting and cell styling to output workbook."""
+def style_excel_workbook(writer, df_master):
+    """Applies clean formatting and cell styling to output workbook safely."""
     header_fill = PatternFill(
         start_color="0D9488", end_color="0D9488", fill_type="solid"
     )
@@ -130,7 +130,7 @@ def style_excel_workbook(writer, df_master, existing_sheets):
                 if col in [3, 7]:  # Net Earning columns
                     cell.number_format = "KSh #,##0.00"
 
-    # 3. Style Daily sheets and auto-adjust column widths
+    # 3. Style Daily sheets & Safely auto-adjust column widths
     for sheetname in writer.sheets:
         ws_curr = writer.sheets[sheetname]
         if "Daily" in sheetname:
@@ -143,7 +143,12 @@ def style_excel_workbook(writer, df_master, existing_sheets):
                 ws_curr.cell(row=r, column=max_c).font = bold_font
 
         for col in ws_curr.columns:
-            max_len = max(len(str(cell.value or "")) for cell in col)
+            max_len = 0
+            for cell in col:
+                val_str = str(cell.value or "")
+                line_lens = [len(line) for line in val_str.split("\n")]
+                if line_lens:
+                    max_len = max(max_len, max(line_lens))
             col_letter = openpyxl.utils.get_column_letter(col[0].column)
             ws_curr.column_dimensions[col_letter].width = max(max_len + 4, 14)
 
@@ -351,10 +356,10 @@ if daily_file is not None:
             if master_file is not None:
                 xls_master = pd.ExcelFile(master_file)
                 for s in xls_master.sheet_names:
-                    existing_sheets[s] = pd.read_excel(xls_master, sheet_name=s)
-                df_master = existing_sheets.get(
-                    "Monthly Summary", existing_sheets[xls_master.sheet_names[0]]
-                )
+                    # Ignore generated output sheets from master to prevent duplicate/corrupt mappings
+                    if s not in ["Monthly Summary", "Net Earnings Analysis"]:
+                        existing_sheets[s] = pd.read_excel(xls_master, sheet_name=s)
+                df_master = pd.read_excel(xls_master, sheet_name="Monthly Summary") if "Monthly Summary" in xls_master.sheet_names else pd.read_excel(xls_master, sheet_name=0)
             else:
                 df_master = pd.DataFrame(
                     columns=["Route", "week 1", "week 2", "week 3", "week 4"]
@@ -481,7 +486,7 @@ if daily_file is not None:
             pos_tot = round(df_pos_earnings["Net Earning"].sum(), 2)
             neg_tot = round(df_neg_earnings["Net Earning"].sum(), 2)
 
-            max_len = max(len(df_pos_earnings), len(df_neg_earnings))
+            max_len = max(len(df_pos_earnings), len(df_neg_earnings), 1)
 
             df_pos_padded = df_pos_earnings.reindex(range(max_len)).fillna("")
             df_neg_padded = df_neg_earnings.reindex(range(max_len)).fillna("")
@@ -496,9 +501,7 @@ if daily_file is not None:
                 "Negative Net Earning": list(df_neg_padded["Net Earning"]) + [neg_tot],
             })
 
-            existing_sheets["Monthly Summary"] = df_final_master
-            existing_sheets["Net Earnings Analysis"] = df_net_earnings_sheet
-            existing_sheets[f"{selected_week.capitalize()} Daily"] = df_daily_grid_final
+            daily_sheet_name = f"{selected_week.capitalize()} Daily"
 
             st.success(f"Successfully processed **{selected_week}**!")
 
@@ -537,18 +540,20 @@ if daily_file is not None:
                         use_container_width=True
                     )
 
-            # 7. Write to Excel Output
+            # 7. Write to Excel Output Safely (No Duplicate Sheets)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                # Write required sheets in a controlled sequence
                 df_final_master.to_excel(writer, sheet_name="Monthly Summary", index=False)
-                df_net_earnings_sheet.to_excel(
-                    writer, sheet_name="Net Earnings Analysis", index=False
-                )
+                df_net_earnings_sheet.to_excel(writer, sheet_name="Net Earnings Analysis", index=False)
+                df_daily_grid_final.to_excel(writer, sheet_name=daily_sheet_name, index=False)
+
+                # Append any remaining safe master sheets
                 for s_name, s_df in existing_sheets.items():
-                    if s_name not in ["Monthly Summary", "Net Earnings Analysis"]:
+                    if s_name not in ["Monthly Summary", "Net Earnings Analysis", daily_sheet_name]:
                         s_df.to_excel(writer, sheet_name=s_name, index=False)
 
-                style_excel_workbook(writer, df_final_master, existing_sheets)
+                style_excel_workbook(writer, df_final_master)
 
             st.download_button(
                 label="📥 Download Formatted Master Workbook (.xlsx)",
