@@ -319,4 +319,19 @@ if daily_file is not None:
             else:
                 for c_idx in range(len(df_raw.columns)):
                     val = df_raw.iloc[0, c_idx]
-                    if pd.notna(val) and str(val).strip().isdigit()
+                    if pd.notna(val) and str(val).strip().isdigit() and c_idx > 0:
+                        day_cols_info.append(
+                            (f"Day {int(str(val).strip())}", c_idx - 1, c_idx)
+                        )
+                start_row = 1
+
+            route_records = {}
+            unmapped_routes = set()
+            for day_label, route_col, val_col in day_cols_info:
+                for r in range(start_row, len(df_raw)):
+                    r_name = df_raw.iloc[r, route_col] if route_col < len(df_raw.columns) else None
+                    r_var = df_raw.iloc[r, val_col] if val_col < len(df_raw.columns) else None
+                    if pd.notna(r_name) and clean_str(r_name) not in ["", "0", "ROUTE", "NAN"]:
+                        r_clean = clean_str(r_name)
+                        if r_clean not in active_route_mapping:
+                            unmapped_routes.add(r_clean
